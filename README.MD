@@ -1,7 +1,7 @@
-#MongoDB
-##什么是mongodb?
+# MongoDB
+## 什么是mongodb?
 　　mongodb是一个基于分布式文件存储的数据库。mongodb是NoSQL数据库，也就是非关系型数据库，内存型数据库。  
-##mongodb和redis的区别？
+## mongodb和redis的区别？
    在之前学习过redis, redis也是内存型NoSql数据库，这与mongodb非常相似，两者之间有什么区别呢？  
    1. 存储类型不同。  
        redis是典型的key-value型数据库。redis是key-value型的存储系统，也就是数据必须有key值，一个key对应一个value，redis支持的value的数据类型有
@@ -32,7 +32,7 @@
            7.2 AOF: 把每条命令都写入文件, 类似mysql的binlog方式。  
            redis主要通过RDB数据快照的方式来持久化，通过AOF来增强可靠性，但是增强可靠性的同时会影响访问性能。  
        mongodb优于redis    
-##MongoDB的安装：
+## MongoDB的安装：
    新建linux虚拟机。  
    执行命令：  
    `curl -O https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.0.6.tgz`   
@@ -48,7 +48,7 @@
    创建数据库目录。  
    mkdir -p /data/db   
    mongodb的数据库目录默认路径为/data/db, 但是不会自己创建，需要手动创建。
-##Mongodb启动：
+## Mongodb启动：
    可以直接在mongodb目录下的bin目录下运行./mongod 来启动mongodb数据库, 因为配置了环境变量的关系，也可以直接执行mongod来启动。
    启动成功后：
    ~~~
@@ -80,7 +80,7 @@
    2020-04-24T04:34:40.976-0700 I NETWORK  [initandlisten] waiting for connections on port 27017
    ~~~
    mongodb的默认端口是27017。
-#MongoDB的基本使用：
+# MongoDB的基本使用：
 在bin目录下，执行mongo脚本，可以开启mongo的shell命令行。  
 `./mongo`
 ~~~
@@ -368,8 +368,8 @@ switched to db study
 > show dbs
 local  0.078GB
 ~~~
-#MongoDB使用： 条件操作，排序，索引，分页查询，聚合函数
-##mongodb条件查询
+# MongoDB使用： 条件操作，排序，索引，分页查询，聚合函数
+## mongodb条件查询
     > use study
     switched to db study
     > db.student.insert({"name":"张三","age":18,"score":100,"sex":1})
@@ -394,7 +394,7 @@ local  0.078GB
 { "_id" : ObjectId("5ea502ae0cf4f3a59d7d9851"), "name" : "小红", "age" : 19, "score" : 100, "sex" : 0 }
 { "_id" : ObjectId("5ea502c70cf4f3a59d7d9852"), "name" : "小明", "age" : 19, "score" : 95, "sex" : 1 }
 ```
-##分页查询
+## 分页查询
 db.collection.find(query).limit(number)
 查询两条数据
 ```shell script
@@ -407,7 +407,7 @@ db.collection.find(query).limit(number)
 { "_id" : ObjectId("5ea502830cf4f3a59d7d984f"), "name" : "张三", "age" : 18, "score" : 100, "sex" : 1 }
 { "_id" : ObjectId("5ea502960cf4f3a59d7d9850"), "name" : "李四", "age" : 20, "score" : 90, "sex" : 1 }
 ```
-##跳过skip
+## 跳过skip
 查询第2-3条数据
 ```shell script
 > db.student.find().limit(2).skip(1)
@@ -435,7 +435,7 @@ db.collection.find(query).limit(number)
 { "_id" : ObjectId("5ea5083a0cf4f3a59d7d9856"), "name" : "小李", "age" : 18, "score" : 93, "sex" : 1 }
 { "_id" : ObjectId("5ea5084a0cf4f3a59d7d9857"), "name" : "小张", "age" : 18, "score" : 98, "sex" : 1 }
 ```
-##排序
+## 排序
 还是上面的集合，按照年龄升序排序。 db.collection.find(query).sort({key:1}) 1表示升序，-1表示降序
 ```shell script
 > db.student.find().sort({age:1})
@@ -449,7 +449,7 @@ db.collection.find(query).limit(number)
 { "_id" : ObjectId("5ea508140cf4f3a59d7d9854"), "name" : "马六", "age" : 21, "score" : 88, "sex" : 0 }
 { "_id" : ObjectId("5ea508010cf4f3a59d7d9853"), "name" : "王二", "age" : 22, "score" : 88, "sex" : 1 }
 ```
-##索引 createIndex(key,options)
+## 索引 createIndex(key,options)
 ```shell script
 > db.student.createIndex({"score":1})
 {
@@ -469,7 +469,7 @@ db.collection.find(query).limit(number)
 ```
 
     
-#MongoDB 集群配置
+# MongoDB 集群配置
 mongodb在生产环境中必然是以集群的形式存在的，不然不安全。mongodb集群主要是一主多从的形式存在。主节点master负责与客户端进行交互，处理读写操作。
 从节点slave主要负责从主节点读取数据并保存到本地。
 ## mongodb主从配置
@@ -542,7 +542,7 @@ mongodb副本集的好处：
 3. 灾难恢复  
 4. 无需停机维护  
 5. 分布式读取数据  
-###副本集的配置
+### 副本集的配置
 需要准备至少三个节点来测试，本次为了方便使用同一台机器上的不同端口号启动三个节点：  
 ~~~
 192.168.226.130:27017 node1
@@ -719,7 +719,7 @@ rs0:PRIMARY> rs.status()
 ```
 当前节点为主节点PRIMARY,上面可以看出节点的详细信息。
 副本集的主节点负责与客户端交互，进行读和写。从节点复制主机点数据，监听主节点 的心跳。
-####副本集主从复制测试。
+#### 副本集主从复制测试。
 在主节点插入数据
 ```shell script
 rs0:PRIMARY> show dbs
@@ -805,7 +805,7 @@ rs0:SECONDARY> rs.status()
 rs0:SECONDARY>
 ```
 可以看出主节点插入数据，在从节点中也有数据,从节点只能读数据，不能写数据，主节点可以读写数据。
-####故障转移
+#### 故障转移
 模拟主节点宕机，关闭主节点服务：
 ```shell script
 [root@moggledb bin]# ./mongod --shutdown --dbpath=/data/node1
@@ -1082,7 +1082,7 @@ rs0:PRIMARY> rs.status()
 }
 ```
 可以看出27017重新成为主节点
-#MongoDB java操做mongodb
+# MongoDB java操做mongodb
 ```java
 package com.xiazhi.mongodb.util;
 
@@ -1278,7 +1278,7 @@ roles: 集合类型。用户所拥有的角色
 添加用户：db.createUser({user:"用户名", pwd:"密码", roles:[{role:"角色", db:"数据库"}]})  
 删除用户：db.dropUser("用户名")
 ~~~
-##Mongodb用户分为两类：超级用户和数据库用户
+## Mongodb用户分为两类：超级用户和数据库用户
 数据库的用户都存放在admin数据库下：
 ```shell script
 db.system.users
