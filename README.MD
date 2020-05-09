@@ -35,9 +35,9 @@
 ## MongoDB的安装：
    新建linux虚拟机。  
    执行命令：  
-   `curl -O https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.0.6.tgz`   
-   `tar -zxvf mongodb-linux-x86_64-3.0.6.tgz`    
-   `mv mongodb-linux-x86_64-3.0.6/ /usr/local/mongodb`    
+   `curl -O https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.4.6.tgz`   
+   `tar -zxvf mongodb-linux-x86_64-3.4.6.tgz`    
+   `mv mongodb-linux-x86_64-3.4.6/ /usr/local/mongodb`    
    加mongodb的环境变量，类似java配置环境变量：  
    `vi /etc/profile`   
    添加：   
@@ -71,7 +71,7 @@
    2020-04-24T04:34:40.965-0700 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/defrag is 'always'.
    2020-04-24T04:34:40.965-0700 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
    2020-04-24T04:34:40.965-0700 I CONTROL  [initandlisten]
-   2020-04-24T04:34:40.965-0700 I CONTROL  [initandlisten] db version v3.0.6
+   2020-04-24T04:34:40.965-0700 I CONTROL  [initandlisten] db version v3.4.6
    2020-04-24T04:34:40.965-0700 I CONTROL  [initandlisten] git version: 1ef45a23a4c5e3480ac919b28afcba3c615488f2
    2020-04-24T04:34:40.965-0700 I CONTROL  [initandlisten] build info: Linux build6.ny.cbi.10gen.cc 2.6.32-431.3.1.el6.x86_64 #1 SMP Fri Jan 3 21:39:27 UTC 2014 x86_64 BOOST_LIB_VERSION=1_49
    2020-04-24T04:34:40.965-0700 I CONTROL  [initandlisten] allocator: tcmalloc
@@ -84,7 +84,7 @@
 在bin目录下，执行mongo脚本，可以开启mongo的shell命令行。  
 `./mongo`
 ~~~
-MongoDB shell version: 3.0.6
+MongoDB shell version: 3.4.6
 connecting to: test
 Server has startup warnings:
 2020-04-24T04:43:56.723-0700 I CONTROL  [initandlisten] ** WARNING: You are running this process as the root user, which is not recommended.
@@ -467,8 +467,6 @@ db.collection.find(query).limit(number)
 { "_id" : 0, "num_tutorial" : 3 }
 { "_id" : 1, "num_tutorial" : 7 }
 ```
-
-
 # MongoDB 集群配置
 mongodb在生产环境中必然是以集群的形式存在的，不然不安全。mongodb集群主要是一主多从的形式存在。主节点master负责与客户端进行交互，处理读写操作。
 从节点slave主要负责从主节点读取数据并保存到本地。
@@ -1165,7 +1163,7 @@ port=27018
 bind_ip=192.168.226.130
 logpath=/data/log/mongodb-route.log
 logappend=true
-chunkSize=500
+
 configdb=192.168.226.130:27017
 fork=true
 ```
@@ -1310,15 +1308,126 @@ switched to db study
 local  0.078GB
 ```
 可以看到因为没有数据，所以study数据库还没有初始化。
-
-
-
-
-
-  
-   
+## Mongodb 搭建高可用集群（分片+副本集）   
 ### 分片与副本集的区别？
 在上一篇我们学习了集群配置--副本集的配置, 副本集是集群配置的方式, 分片也是集群配置的方式, 那么这两种方式的区别是什么?
+* 副本集（replica Set）
+    * 一个副本集中每一个节点上的数据都相同（从节点复制主节点数据），保证数据一致性。
+    * 主节点宕机后，从节点会选举出新的主节点。故障转移，保证服务的可用性。
+* 分片（sharding）
+    * 每一个节点存放的数据都是不一样的。保证当数据量过大时，数据库能够正常使用，缓解数据库的读写压力。
+    * 集群节点抽象，客户端只需要知道route路由的链接地址，通过路由来存取数据，无需知道具体连接的集群节点信息。保证数据安全性。 
+    
+分析上面的区别可以看出，副本集和分片各有优点，因此高可用的服务集群应该时replSet+sharding。
+### 实现replSet+ sharding
+节点分布信息：[关于仲裁节点](https://blog.csdn.net/y6300023290/article/details/89213950) 
+ 
+| 端口号 | 192.168.226.130 | 192.168.226.131 | 192.168.226.132 |  
+| ----- | --------------- | --------------- | --------------- |  
+| 30000 |     mongos      |      mongos     |     mongos      |
+| 27100 |  config server  |  config server  |  config server  |
+| 27017 | shard1(primary) |shard1(secondary)| shard1(仲裁节点) |
+| 27018 | shard2(primary) |shard2(secondary)| shard2(仲裁节点) |
+| 27019 | shard3(primary) |shard3(secondary)| shard3(仲裁节点) | 
+
+#### config server副本集配置启动
+config server是存储数据的位置的节点，路由route通过该节点获取数据位置。只设一个节点，config server宕机，就会导致服务整体不可用，因此也设为副本集形式
+在/data目录下分别创建config文件夹做数据库文件夹, 并创建配置文件 `mongodb-config.conf` 内容如下：
+```properties
+dbpath=/data/config
+logpath=/data/log/mongodb-config.log
+logappend=true
+fork=true
+bind_ip=192.168.226.130
+port=27100
+
+configsvr=true
+replSet=configs
+```
+**关于configsvr属性配置后，config server节点启动失败问题**  
+本来我是用的3.0.6版本的mongdob，config server节点一直启动失败，如果不配置configsvr这个属性就能正常启动，但是无法配置mongos副本集，后来升级到3.4.6版本后就可以正常启动了。
+
+复制到其他两个节点并修改配置文件的内容
+```shell script
+[root@moggledb config]# scp mongodb-config.conf root@192.168.226.131:/data/config/                                                                                                                             100%  149     0.2KB/s   00:00
+[root@moggledb config]# scp mongodb-config.conf root@192.168.226.132:/data/config/           
+```
+启动config库,初始化副本集：
+```shell script
+[root@moggledb config]# mongo --host 192.168.226.130 --port 27100
+...
+> var conf={_id:"configs",members:[{_id:0,host:"192.168.226.130:27100"},{_id:1,host:"192.168.226.131:27100"},{_id:2,host:"192.168.226.132:27100"}]}
+> rs.initiate(conf)
+```
+#### shard副本集配置启动
+按上表分别创建数据库文件夹及配置文件 
+![配置文件](https://img2020.cnblogs.com/blog/1602537/202005/1602537-20200509141717637-45523208.png)
+```properties
+dbpath=/data/shard1
+logpath=/data/log/mongodb-shard1.log
+logappend=true
+fork=true
+bind_ip=192.168.226.130
+port=27017
+
+replSet=shard1
+# 设置分片
+shardsvr=trueZZZZ
+```
+分别复制到其他几个节点并修改相应节点信息ip/port/replSet等。
+启动节点。
+![](https://img2020.cnblogs.com/blog/1602537/202005/1602537-20200509142905969-1897372509.png)
+![](https://img2020.cnblogs.com/blog/1602537/202005/1602537-20200509142926814-1605442882.png)
+![](https://img2020.cnblogs.com/blog/1602537/202005/1602537-20200509142940509-286474755.png)
+进入节点，初始化副本集：
+````shell script
+[root@mongodb2 data]# mongo --host 192.168.226.130 --port 27017
+.....
+> var conf={_id:"shard1",members:[{_id:0,host:"192.168.226.130:27017"},{_id:1,"host":"192.168.226.131:27017"},{_id:2,host:"192.168.226.132:27017",arbiterOnly:true}]}
+> rs.initiate(conf)
+{ "ok" : 1 }
+shard1:OTHER> exit
+bye
+[root@mongodb2 data]# mongo --host 192.168.226.130 --port 27018
+....
+> var conf={_id:"shard2",members:[{_id:0,host:"192.168.226.130:27018"},{_id:1,"host":"192.168.226.131:27018"},{_id:2,host:"192.168.226.132:27018",arbiterOnly:true}]}
+> rs.initiate(conf)
+{ "ok" : 1 }
+shard2:OTHER> exit
+bye
+[root@mongodb2 data]# mongo --host 192.168.226.130 --port 27019
+.....
+> var conf={_id:"shard3",members:[{_id:0,host:"192.168.226.130:27019"},{_id:1,"host":"192.168.226.131:27019"},{_id:2,host:"192.168.226.132:27019",arbiterOnly:true}]}
+> rs.initiate(conf)
+{ "ok" : 1 }
+````
+启动路由：
+创建mongos文件夹,编辑mongodb-mongos.conf
+```properties
+port=30000
+bind_ip=192.168.226.130
+logpath=/data/log/mongodb-route.log
+logappend=true
+configdb=configs/192.168.226.130:27100,192.168.226.131:27100,192.168.226.132:27100
+fork=true
+```
+#### route节点
+启动路由,配置分片副本集
+```shell script
+[root@moggledb mongos]# mongos -f mongodb-mongos.conf
+[root@moggledb mongos]# mongo --host 192.168.226.130 --port 30000
+...
+mongos> use admin
+switched to db admin
+mongos> sh.addShard("shard1/192.168.226.130:27017,192.168.226.131:27017,192.168.226.132:27017")
+{ "shardAdded" : "shard1", "ok" : 1 }
+mongos> sh.addShard("shard2/192.168.226.130:27018,192.168.226.131:27018,192.168.226.132:27018")
+{ "shardAdded" : "shard2", "ok" : 1 }
+mongos> sh.addShard("shard3/192.168.226.130:27019,192.168.226.131:27019,192.168.226.132:27019")
+{ "shardAdded" : "shard3", "ok" : 1 }
+```
+至此集群配置完毕，下面测试集群配置是否可用：
+
 # MongoDB java操做mongodb
 ```java
 package com.xiazhi.mongodb.util;
@@ -1710,7 +1819,7 @@ root       8598   2571  0 22:23 pts/0    00:00:00 grep mongod
 连接主节点
 ```shell script
 [root@moggledb node1]# mongo --username root --password root admin --host 192.168.226.130 --port 27017
-MongoDB shell version: 3.0.6
+MongoDB shell version: 3.4.6  
 connecting to: 192.168.226.130:27017/admin
 rs0:PRIMARY> show dbs
 admin  0.078GB
