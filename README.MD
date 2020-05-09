@@ -468,7 +468,7 @@ db.collection.find(query).limit(number)
 { "_id" : 1, "num_tutorial" : 7 }
 ```
 
-    
+
 # MongoDB 集群配置
 mongodb在生产环境中必然是以集群的形式存在的，不然不安全。mongodb集群主要是一主多从的形式存在。主节点master负责与客户端进行交互，处理读写操作。
 从节点slave主要负责从主节点读取数据并保存到本地。
@@ -535,6 +535,7 @@ Cleanup...
 2020-04-30T04:31:47.998-0700 I STORAGE  [replslave] copying indexes for: { name: "coll", options: {} }
 ```
 这样的主从配置如果主节点宕机的话，从节点不会自动转为主节点，会一直等待主节点重启。主节点宕机期间，服务是不可用的。
+
 ## mongodb复制(副本集)
 mongodb副本集的好处：  
 1. 保证数据的安全性  
@@ -1082,6 +1083,242 @@ rs0:PRIMARY> rs.status()
 }
 ```
 可以看出27017重新成为主节点
+## mongodb 分片技术
+在mongodb中存在另一种集群技术--分片技术。用于解决mongodb数量大的需求。
+当mongodb中存在海量数据时，一台服务器可能不足以存储数据，也肯能不足以提供可接受的吞吐量。此时就可以在多台数据上分割数据，使得数据库能存放更多的数据。
+### 为什么使用分片技术？
+* 在mongodb副本集中，所有的写入操作都在主节点。客户端只与主节点打交道，那么如果数据量非常大/访问频率非常高的话，主节点的压力就会非常大。
+* 副本集的节点数量限制。  
+    **官方文档给出：mongodb单个副本集下所有节点不能超过50个，投票节点不能超过7个**
+* 当请求量巨大时，可能会出现内存不足。   
+    使用NoSql数据库的一个重要原因就是内存数据库，效率高，但是数据量过大时就会出现内存不足的情况。
+* 本地磁盘不足。
+    mongodb的数据也会持久化在本地硬盘上，如果数据量非常大，就会出现本地磁盘不足的情况
+* 垂直拓展价格昂贵
+    垂直拓展：增加更多的cpu和存储资源来扩展容量  
+    
+高数据量和高吞吐量回对单机造成很大的压力，解决办法：  
+    水平拓展：将数据集分布在多个服务器上，即水平切片。
+    垂直拓展。
+    
+### 分片技术的组件
+mongodb的分片设计主要包含三个组件，
+![摘自菜鸟教程](https://www.runoob.com/wp-content/uploads/2013/12/sharding.png)
+    
+    shard: 用于存储实际的数据块。实际生产环境中一个shard server角色可以由多个节点组成一个副本集承担，防止节点故障。
+    config server: 所有存取数据的方式，所有shard节点的信息，分片功能的配置信息。config sever是由一组至少三个的Mongodbs实例组成的集群。
+    query Routers: 前端路由，客户端由此接入。路由没有任何数据，请求过来后会直接找config server，由config server决定去哪儿个分片取数据，以及怎么取数据。
+        
+由上面图片可以大概分析请求的流程：  
+    客户端请求到router, 然后router调用config server获取到数据的位置, 然后router会直接找到存放数据的shard来存取数据。
+### 分片技术的实现 
+受电脑配置限制，我启动三台服务器： `192.168.226.130, 192.168.226.131, 192.168.226.132`分别安装mongodb。  
+节点分布如下：
+~~~
+shard1: 192.168.226.131:27017
+shard2: 192.168.226.131:27018
+shard3: 192.168.226.131:27019
+
+shard4: 192.168.226.132:27017
+shard5: 192.168.226.132:27018
+shard6: 192.168.226.132:27019
+
+config server:192.168.226.130:27017
+
+~~~
+### shard节点启动
+分别在节点上创建数据库文件夹：  
+![](https://img2020.cnblogs.com/blog/1602537/202005/1602537-20200508174452464-577727772.png)
+![](https://img2020.cnblogs.com/blog/1602537/202005/1602537-20200508174508003-646167306.png)  
+在s1下创建文件：mongodb-shard.conf 并编辑如下内容：
+```properties
+dbpath=/data/s1
+logpath=/data/log/mongodb-s1.log
+logappend=true
+fork=true
+bind_ip=192.168.226.131
+port=27017
+```
+修改信息复制到其他的文件夹下。
+分别启动各个shard节点
+```shell script
+[root@mongodb2 data]# mongod -f /data/s1/mongodb-shard.conf
+......
+[root@mongodb3 data]# mongod -f /data/s6/mongodb-shard.conf
+```
+查看节点启动状态：  
+![](https://img2020.cnblogs.com/blog/1602537/202005/1602537-20200508180409198-533974424.png)
+![](https://img2020.cnblogs.com/blog/1602537/202005/1602537-20200508180446237-1488051152.png)
+### config节点启动
+在192.168.226.130 节点下创建/data/config 数据库，并添加配置文件：mongodb-config.conf
+```properties
+dbpath=/data/config
+logpath=/data/log/mongodb-config.log
+logappend=true
+fork=true
+bind_ip=192.168.226.130
+port=27017
+```
+创建mongos文件，添加mongodb-mongos.conf文件，文件内容：
+```properties
+port=27018
+bind_ip=192.168.226.130
+logpath=/data/log/mongodb-route.log
+logappend=true
+chunkSize=500
+configdb=192.168.226.130:27017
+fork=true
+```
+启动路由： `mongos -f /data/mongos/mongodb-mongos.conf`  
+查看启动状态：
+```shell script
+[root@moggledb mongos]# ps -ef |grep mongo
+root      15086      1  0 19:49 ?        00:00:02 mongod -f /data/config/mongodb-config.conf
+root      15124      1  0 19:53 ?        00:00:00 mongos -f /data/mongos/mongodb-mongos.conf
+root      15145  15062  0 19:54 pts/0    00:00:00 grep mongo
+[root@moggledb mongos]#
+```
+使用mongo命令进入路由： `mongo --host 192.168.226.130 --port 27018 admin`  
+```shell script
+## 添加shard节点：
+mongos> db.runCommand({addshard:"192.168.226.131:27017"})
+{ "shardAdded" : "shard0000", "ok" : 1 }
+## 添加其他shard节点......
+mongos> db.runCommand({addshard:"192.168.226.132:27019"})
+{ "shardAdded" : "shard0005", "ok" : 1 }
+## 设置分片存储数据库
+mongos> db.runCommand({enablesharding:"study"})
+{ "ok" : 1 }
+## 指定数据库中的表通过什么分片, 我指定了对study数据库下的book表进行分片，根据表字段id和time分片, 指定的key在文档中必须存在，否则添加失败
+mongos> db.runCommand({shardcollection:"study.book", key:{id:1, time:1}})
+{ "collectionsharded" : "study.book", "ok" : 1 }
+```
+[更多关于mongodb片建信息](https://www.jianshu.com/p/bb5f18a852c0)
+
+查看分片状态：
+```shell script
+mongos> db.runCommand({listshards:1})
+{
+        "shards" : [
+                {
+                        "_id" : "shard0000",
+                        "host" : "192.168.226.131:27017"
+                },
+                {
+                        "_id" : "shard0001",
+                        "host" : "192.168.226.131:27018"
+                },
+                {
+                        "_id" : "shard0002",
+                        "host" : "192.168.226.131:27019"
+                },
+                {
+                        "_id" : "shard0003",
+                        "host" : "192.168.226.132:27017"
+                },
+                {
+                        "_id" : "shard0004",
+                        "host" : "192.168.226.132:27018"
+                },
+                {
+                        "_id" : "shard0005",
+                        "host" : "192.168.226.132:27019"
+                }
+        ],
+        "ok" : 1
+}
+```
+插入三条数据：
+```shell script
+mongos> db.book.insert({"id":"1","name":"java","content":"hello java!","time":"2020-05-05"})
+WriteResult({ "nInserted" : 1 })
+mongos> db.book.insert({"id":"2","name":"php","content":"hello java!","time":"2020-05-06"})
+WriteResult({ "nInserted" : 1 })
+mongos> db.book.insert({"id":"3","name":"python","content":"hello java!","time":"2020-05-07"})
+WriteResult({ "nInserted" : 1 })
+mongos> db.book.find()
+{ "_id" : ObjectId("5eb622cb3fad9d07777f6ca0"), "id" : "1", "name" : "java", "content" : "hello java!", "time" : "2020-05-05" }
+{ "_id" : ObjectId("5eb622e03fad9d07777f6ca1"), "id" : "2", "name" : "php", "content" : "hello java!", "time" : "2020-05-06" }
+{ "_id" : ObjectId("5eb622ee3fad9d07777f6ca2"), "id" : "3", "name" : "python", "content" : "hello java!", "time" : "2020-05-07" }
+```
+可以看到在路由段就可以查到数据，因此在客户端只需要连接路由的地址，就可以查询整个集群数据，务需关心数据具体存在哪儿。  
+下面我们看一下数据实际存储的数据块：  
+ 首先登录进config库：
+ ```shell script
+[root@moggledb ~]# mongo --host 192.168.226.130 --port 27017 study
+......
+2020-05-08T19:49:05.408-0700 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2020-05-08T19:49:05.408-0700 I CONTROL  [initandlisten]
+> db.book.find()
+> show dbs
+config  0.078GB
+local   0.078GB
+```
+可以看到根本没有study数据库, 之前我们说数据实际存储节点在shard节点中，config存储的是数据的位置。 下面验证一下：
+```shell script
+> use config
+switched to db config
+> show collections
+actionlog
+changelog
+chunks
+collections
+databases
+lockpings
+locks
+mongos
+settings
+shards
+system.indexes
+tags
+version
+```
+上面是config库的表数据，我们可以看到chunks表存放数据块信息，shards存放shard节点信息
+```shell script
+> db.shards.find()
+{ "_id" : "shard0000", "host" : "192.168.226.131:27017" }
+{ "_id" : "shard0001", "host" : "192.168.226.131:27018" }
+{ "_id" : "shard0002", "host" : "192.168.226.131:27019" }
+{ "_id" : "shard0003", "host" : "192.168.226.132:27017" }
+{ "_id" : "shard0004", "host" : "192.168.226.132:27018" }
+{ "_id" : "shard0005", "host" : "192.168.226.132:27019" }
+> db.chunks.find()
+{ "_id" : "study.book-id_MinKeytime_MinKey", "lastmod" : Timestamp(1, 0), "lastmodEpoch" : ObjectId("5eb62121eebc265b95c4a76d"), "ns" : "study.book", "min" : { "id" : { "$minKey" : 1 },
+"time" : { "$minKey" : 1 } }, "max" : { "id" : { "$maxKey" : 1 }, "time" : { "$maxKey" : 1 } }, "shard" : "shard0000" }
+```
+其他表数据信息不一一测试，有兴趣自己验证。  
+在上面我们看到数据都存在shard0000节点上，根据节点表信息可以知道shard0000节点地址为 `192.168.226.131:27017` 登录上去进行验证。
+```shell script
+[root@mongodb2 ~]# mongo --host 192.168.226.131 --port 27017 study
+.....
+2020-05-08T11:00:16.019-0700 I CONTROL  [initandlisten]
+> show dbs
+local  0.078GB
+study  0.078GB
+> use study
+switched to db study
+> db.book.find()
+{ "_id" : ObjectId("5eb622cb3fad9d07777f6ca0"), "id" : "1", "name" : "java", "content" : "hello java!", "time" : "2020-05-05" }
+{ "_id" : ObjectId("5eb622e03fad9d07777f6ca1"), "id" : "2", "name" : "php", "content" : "hello java!", "time" : "2020-05-06" }
+{ "_id" : ObjectId("5eb622ee3fad9d07777f6ca2"), "id" : "3", "name" : "python", "content" : "hello java!", "time" : "2020-05-07" }
+```
+可以在切换其他几个节点查看是否有数据：
+```shell script
+[root@mongodb2 ~]# mongo --host 192.168.226.131 --port 27018 study
+.....
+> show dbs
+local  0.078GB
+```
+可以看到因为没有数据，所以study数据库还没有初始化。
+
+
+
+
+
+  
+   
+### 分片与副本集的区别？
+在上一篇我们学习了集群配置--副本集的配置, 副本集是集群配置的方式, 分片也是集群配置的方式, 那么这两种方式的区别是什么?
 # MongoDB java操做mongodb
 ```java
 package com.xiazhi.mongodb.util;
@@ -1539,7 +1776,7 @@ rs0:PRIMARY>
 可以看到切换为test2用户后，test2用户可以查看admin用户插入的数据，但是test2用户只有读的权限，因此插入数据失败。
 [更多角色权限说明](https://blog.csdn.net/ljk168/article/details/79441327)
 
-#MongoDB springboot集成mongoDB的使用
+# MongoDB springboot集成mongoDB的使用
 在springboot中对mongodb和redis等NoSql数据库都已经有集成了,这里主要学习如何去使用springboot框架集成的mongodb。  
 首先导入依赖:
 ```xml
@@ -1568,8 +1805,6 @@ rs0:PRIMARY>
 #spring.data.mongodb.uri=mongodb://user:pwd@ip:port/database
 #集群配置
 spring.data.mongodb.uri=mongodb://root:123456@192.168.226.130:27017,192.168.226.130:27018,192.168.226.130:27019/study
-spring.data.mongodb.username=root
-spring.data.mongodb.password=123456
 ```
 mongodb的增删改查：
 + 创建实体类book

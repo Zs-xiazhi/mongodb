@@ -6,6 +6,7 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.xiazhi.mongodb.bean.Book;
+import com.xiazhi.mongodb.bean.User;
 import com.xiazhi.mongodb.service.MongoService;
 import com.xiazhi.mongodb.util.MongoUtil;
 import org.bson.BsonDocument;
@@ -24,7 +25,10 @@ import java.math.BigDecimal;
 class MongodbApplicationTests {
 
     @Autowired
-    private MongoService<Book> mongoService;
+    private MongoService<Book> bookMongoService;
+
+    @Autowired
+    private MongoService<User> userMongoService;
 
     @Test
     void contextLoads() {
@@ -57,12 +61,15 @@ class MongodbApplicationTests {
 
     @Test
     void test() {
-        mongoService.save(new Book().setId(1L).setName("java").setPrice(BigDecimal.valueOf(50.55)).setContent("hello java"));
-        mongoService.save(new Book().setId(2L).setName("c").setPrice(BigDecimal.valueOf(55.55)).setContent("hello c"));
-        mongoService.update(new Book().setId(1L).setName("python").setContent("hello python").setPrice(BigDecimal.valueOf(60.01)));
-        Book book = mongoService.queryForOne(new Book().setName("python"));
+        bookMongoService.save(new Book().setId(1L).setName("java").setPrice(BigDecimal.valueOf(50.55)).setContent("hello java"));
+        bookMongoService.save(new Book().setId(2L).setName("c").setPrice(BigDecimal.valueOf(55.55)).setContent("hello c"));
+        bookMongoService.update(new Book().setId(1L).setName("python").setContent("hello python").setPrice(BigDecimal.valueOf(60.01)));
+        Book book = bookMongoService.queryForOne(new Book().setName("python"));
         System.out.println(book.toString());
-        mongoService.delete(1L);
+        bookMongoService.delete(1L);
+
+        User user = new User().setId(1L).setUsername("张三").setPassword("123456");
+        userMongoService.save(user);
 
     }
 }
