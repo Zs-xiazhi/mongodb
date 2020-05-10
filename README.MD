@@ -1426,7 +1426,114 @@ mongos> sh.addShard("shard2/192.168.226.130:27018,192.168.226.131:27018,192.168.
 mongos> sh.addShard("shard3/192.168.226.130:27019,192.168.226.131:27019,192.168.226.132:27019")
 { "shardAdded" : "shard3", "ok" : 1 }
 ```
-至此集群配置完毕，下面测试集群配置是否可用：
+至此集群配置完毕，下面测试集群配置是否可用：  
+存入500条数据
+```shell script
+[root@moggledb ~]# mongo -host 192.168.226.130 -port 30000
+......
+mongos> show dbs
+admin   0.000GB
+config  0.000GB
+mongos> use admin
+switched to db admin
+mongos> db.runCommand({enablesharding:"study"})
+{ "ok" : 1 }
+mongos> db.runCommand({shardcollection:"study.book",key:{id:1}})
+{ "collectionsharded" : "study.book", "ok" : 1 }
+mongos> use study
+switched to db study
+mongos> for(var i=1;i<=500;i++){db.book.insert({id:i,"name":"java"})}
+WriteResult({ "nInserted" : 1 })
+## 查看表数据存储状态
+mongos> db.book.find().count()
+500
+mongos> db.book.stats()
+{
+        "sharded" : true,
+        "capped" : false,
+        "ns" : "study.book",
+        "count" : 500,
+        "size" : 24500,
+        "storageSize" : 53248,
+        "totalIndexSize" : 102400,
+        "indexSizes" : {
+                "_id_" : 49152,
+                "id_1" : 53248
+        },
+        "avgObjSize" : 49,
+        "nindexes" : 2,
+        "nchunks" : 3,
+        "shards" : {
+                "shard1" : {
+                        "ns" : "study.book",
+                        "size" : 23471,
+                        "count" : 479,
+                        "avgObjSize" : 49,
+                        "storageSize" : 20480,
+                        "capped" : false,
+                        ...
+                        "nindexes" : 2,
+                        "totalIndexSize" : 36864,
+                        "indexSizes" : {
+                                "_id_" : 16384,
+                                "id_1" : 20480
+                        },
+                        "ok" : 1
+                },
+                "shard2" : {
+                        "ns" : "study.book",
+                        "size" : 49,
+                        "count" : 1,
+                        "avgObjSize" : 49,
+                        "storageSize" : 16384,
+                        "capped" : false,
+                        ...
+                        "nindexes" : 2,
+                        "totalIndexSize" : 32768,
+                        "indexSizes" : {
+                                "_id_" : 16384,
+                                "id_1" : 16384
+                        },
+                        "ok" : 1
+                },
+                "shard3" : {
+                        "ns" : "study.book",
+                        "size" : 980,
+                        "count" : 20,
+                        "avgObjSize" : 49,
+                        "storageSize" : 16384,
+                        "capped" : false,
+                        ...
+                        "nindexes" : 2,
+                        "totalIndexSize" : 32768,
+                        "indexSizes" : {
+                                "_id_" : 16384,
+                                "id_1" : 16384
+                        },
+                        "ok" : 1
+                }
+        },
+        "ok" : 1
+}
+
+```
+注意上面的count属性，shard1.count:479,shard2.count:1,shard3.count:20。  
+500条数据分片存储,集群搭建成功。
+#### 关闭/启动集群
+启动集群
+先启动config server，在启动shard，最后启动mongos
+```shell script
+mongod -f /data/config/mongodb-config.conf
+mongod -f /data/shard1/mongodb-shard1.conf
+mongod -f /data/shard2/mongodb-shard2.conf
+mongod -f /data/shard3/mongodb-shard3.conf
+mongod -f /data/mongos/mongodb-mongos.conf
+```
+关闭集群：
+```shell script
+killall mongod
+killall mongos
+```
 
 # MongoDB java操做mongodb
 ```java
